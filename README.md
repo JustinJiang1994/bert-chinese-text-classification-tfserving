@@ -1,40 +1,47 @@
 # 中文文本分类（BERT + TensorFlow Serving）
 
 ## 项目简介
-本项目旨在基于BERT模型进行中文文本分类，最终通过TensorFlow Serving部署模型服务。当前已实现数据集的切分，后续将补充模型训练与服务部署部分。
+本项目旨在基于BERT模型进行中文文本分类，最终通过TensorFlow Serving部署模型服务。
 
-## 数据说明
-- 数据文件位于`data/`目录。
-- 原始数据文件为`initial.data`，格式如下（以Tab分隔）：
+## 项目流程
 
+### 1. 环境准备
+本项目依赖 `TensorFlow` 和 `Transformers` 等库，建议使用 `pip3` 安装。
+
+```bash
+pip3 install -r requirements.txt
 ```
-label\ttxt
-1\t手机很不错，玩游戏很流畅，快递小哥态度特别特别特别好，重要的事情说三遍?
-0\t电池一直用可以用半天，屏幕很好。
--1\t一个月都有点卡了，
+
+### 2. 数据集切分
+- 原始数据位于 `data/initial.data`，包含 `label` 和 `txt` 两列，以Tab分隔。
+- 运行 `split_data.py` 脚本可将其按 8:1:1 的比例切分为训练、验证和测试集。
+
+```bash
+# 此脚本依赖 pandas 和 scikit-learn
+python3 scripts/split_data.py
 ```
-- `label`为类别标签（如1/0/-1），`txt`为中文评论文本。
+切分后的文件（`train.data`, `val.data`, `test.data`）将保存在 `data/` 目录下。
 
-## 数据集切分
-- 使用`scripts/split_data.py`脚本将`initial.data`按8:1:1比例切分为训练集（train.data）、验证集（val.data）、测试集（test.data）。
-- 切分后数据仍为Tab分隔，格式与原始数据一致。
+### 3. 模型训练
+- 使用 `train_bert.py` 脚本进行模型训练。
+- 该脚本会加载 `bert-base-chinese` 预训练模型，并在我们的数据集上进行微调。
+- 训练完成后，模型将保存在 `saved_model/bert-chinese/` 目录下，并在测试集上输出准确率。
 
-### 运行方法
-1. 安装依赖：
-   ```bash
-   pip install pandas==2.1.1 scikit-learn==1.6.1
-   ```
-2. 执行切分脚本：
-   ```bash
-   python scripts/split_data.py
-   ```
-3. 运行后将在`data/`目录下生成`train.data`、`val.data`、`test.data`。
+```bash
+python3 train_bert.py
+```
 
-## 后续开发计划
-- 基于BERT的文本分类模型训练（TensorFlow/Keras）。
-- 模型导出为SavedModel格式。
-- 使用TensorFlow Serving部署模型，提供在线推理API。
-- 增加推理/评测脚本与接口文档。
+### 4. 模型导出
+- 为了让 TensorFlow Serving 能够加载模型，需要将其转换为标准的 `SavedModel` 格式。
+- `export_model.py` 脚本负责此项转换，并为模型定义一个接受原始文本输入的推理接口。
+
+```bash
+python3 export_model.py
+```
+- 导出的模型位于 `tf_serving_model/bert-chinese/1`，其中 `1` 是模型版本号。
+
+### 5. 服务部署 (后续)
+- 使用 TensorFlow Serving (Docker) 加载导出的 `SavedModel` 并启动RESTful API服务。
 
 ## 目录结构
 ```
@@ -44,6 +51,14 @@ bert-chinese-text-classification-tfserving/
   │   ├── train.data
   │   ├── val.data
   │   └── test.data
-  └── scripts/
-      └── split_data.py
+  ├── scripts/
+  │   └── split_data.py
+  ├── saved_model/
+  │   └── bert-chinese/      # 训练后保存的Hugging Face模型
+  ├── tf_serving_model/
+  │   └── bert-chinese/
+  │       └── 1/             # 导出的TF Serving模型
+  ├── train_bert.py
+  ├── export_model.py
+  └── requirements.txt
 ```

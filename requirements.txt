@@ -1,0 +1,4 @@
+tensorflow==2.15.0
+transformers==4.40.2
+scikit-learn==1.6.1
+pandas==2.1.1 
