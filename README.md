@@ -56,7 +56,7 @@ docker run -d --name tf-bert-serving -p 8501:8501 \
 > **为什么要用 Docker？**
 > 直接在宿主机上通过 `tensorflow_model_server` 命令启动服务理论上可行，但通常会遇到C++库依赖、版本不匹配等复杂的环境问题。使用官方提供的 `tensorflow/serving` Docker 镜像有以下好处：
 > - **环境隔离**: 无需在本地安装任何 TensorFlow Serving 相关的依赖，所有运行时都在容器内，与宿主机环境完全隔离。
-> - **版本一致性**: 确保了开发、测试和生产环境的一致性，避免了“在我机器上能跑”的问题。
+> - **版本一致性**: 确保了开发、测试和生产环境的一致性，避免了"在我机器上能跑"的问题。
 > - **部署便捷**: 一行命令即可启动、停止和管理服务，极大简化了部署流程。
 
 ### 6. 调用服务
@@ -80,6 +80,19 @@ python3 predict_client.py
 ------------------------------
 ```
 
+#### API 设计：为什么接口不直接接收文本？
+你可能会注意到，无论是`predict_client.py`还是Postman的例子，发送给服务的都不是原始文本，而是一串数字（`input_ids`和`attention_mask`）。这是由TensorFlow Serving的技术特性和业界标准的部署架构决定的。
+
+- **服务器的责任（TF Serving）**：TF Serving是一个高性能的C++程序，它的核心优势是高效的数学计算。但它无法执行像Hugging Face `tokenizer`这样的纯Python逻辑。因此，模型服务本身被设计成一个纯净的"计算器"，它只接受已经处理好的数字张量作为输入。
+
+- **客户端的责任（调用方）**：API的调用方（例如我们的`predict_client.py`）必须承担起所有的预处理工作。一个完整的调用流程如下：
+  1.  **加载分词器**：客户端需要加载一个与模型训练时完全相同的分词器（`bert-base-chinese`）。
+  2.  **文本分词**：将原始文本（如"这手机真好看"）输入分词器，得到`input_ids`等标记。
+  3.  **构造请求**：将分词后的数字数组构造成服务要求的JSON格式。
+  4.  **发送请求**：将此JSON作为POST请求的body发送给模型服务。
+
+> 简而言之，**`predict_client.py` 的实现，就是这个服务最精确、最权威的"API文档"**。任何希望集成此服务的应用，都需要遵循这个客户端预处理的流程。项目中提供的`tf_serving_postman_collection.json`文件，仅仅是这个流程走完一次后的"结果快照"，用于快速验证服务是否可用，而不应作为API的接入规范。
+
 ## 目录结构
 ```
 bert-chinese-text-classification-tfserving/
@@ -98,6 +111,7 @@ bert-chinese-text-classification-tfserving/
   ├── train_bert.py
   ├── export_model.py
   ├── predict_client.py
+  ├── tf_serving_postman_collection.json
   └── requirements.txt
 ```
 ## 常见问题与解决方法 (Troubleshooting)
@@ -121,4 +135,43 @@ bert-chinese-text-classification-tfserving/
   1.  **服务器只负责纯计算**：将所有预处理/后处理逻辑（如分词）从模型导出代码中完全剥离。导出的 `SavedModel` 应该是一个纯净的计算图，其接口只接受已经处理好的张量（如 `input_ids`）作为输入。
   2.  **客户端负责所有预处理**: 在调用服务的客户端 (`predict_client.py`) 中加载 `tokenizer`，完成从**原始文本 -> 分词 -> 张量**的所有转换工作。然后将这些张量作为请求体发送给 TensorFlow Serving。
   - *这种 "客户端分词" 的架构是业界标准，它不仅解决了技术问题，也使得模型服务本身更轻量、更高效。*
+
+## 生产环境部署架构建议
+
+如果希望提供一个能直接接收原始文本的、稳定且可扩展的API服务，推荐采用以下**微服务架构**：
+
+```mermaid
+sequenceDiagram
+    participant User as "最终用户<br/>(浏览器/App)"
+    participant Gateway as "API网关服务<br/>(Python: Flask/FastAPI)"
+    participant Inference as "推理服务<br/>(TensorFlow Serving)"
+
+    User->>+Gateway: 发送请求: `{"text": "这手机真好看"}`
+    Gateway->>Gateway: 1. 加载分词器
+    Gateway->>Gateway: 2. 对文本进行分词和处理
+    Gateway->>+Inference: 3. 调用内部接口，发送张量<br/>`{"instances": [{"input_ids": [...]}]}`
+    Inference-->>-Gateway: 4. 返回计算结果<br/>`{"predictions": [[-0.4, 0.8]]}`
+    Gateway->>Gateway: 5. 后处理，转换为友好格式
+    Gateway-->>-User: 6. 返回最终结果: `{"label": "正面", "score": 0.99}`
+```
+
+这种架构将系统分为两个核心服务：
+
+1.  **推理服务 (Inference Service)**
+    - **角色**: 本项目中的 `tensorflow/serving` Docker容器。
+    - **职责**: 作为一个高效但"单一"的计算引擎，只负责接收处理好的数字张量，执行模型推理，并返回结果。它追求极致的计算性能和稳定性。
+
+2.  **API网关服务 (API Gateway Service)**
+    - **角色**: 一个需要额外创建的、轻量级的Python Web服务（例如使用Flask或FastAPI框架）。
+    - **职责**: 作为整个系统的"门面"，为最终用户提供友好的API。它负责：
+        - 接收原始文本请求。
+        - **执行所有预处理逻辑（如分词）**。
+        - 调用后端的推理服务。
+        - （可选）执行后处理逻辑，将推理结果转换为更易读的格式。
+
+### 采用此架构的优势
+
+- **关注点分离 (Separation of Concerns)**: 每个服务只做自己最擅长的事，使得系统更容易开发、调试和维护。
+- **独立扩展 (Scalability)**: 推理服务（通常需要GPU）和网关服务（通常只需要CPU）可以根据各自的负载独立进行扩缩容，从而最大化资源利用率。
+- **灵活性 (Flexibility)**: 未来可以轻松替换底层的推理服务（例如从TF Serving换成TorchServe），而对最终用户无任何影响，只需修改网关服务的内部调用逻辑。
 
