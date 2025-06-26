@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: .
+    container_name: api-gateway
+    ports:
+      - "5001:5001"
+    volumes:
+      # 挂载模型文件，以便api-gateway可以加载tokenizer
+      - ./saved_model:/app/saved_model
+    environment:
+      # 将推理服务的地址通过环境变量传给Flask应用
+      # 使用服务名'inference-service'作为hostname，docker-compose会自动处理DNS解析
+      - TF_SERVING_URL=http://inference-service:8501/v1/models/bert-chinese:predict
+    depends_on:
+      - inference-service
+    restart: unless-stopped
+
+  inference-service:
+    image: tensorflow/serving
+    container_name: inference-service
+    ports:
+      # 我们不再需要将8501映射到宿主机，因为它只在内部被api-gateway访问
+      # 但为了调试方便，暂时保留
+      - "8501:8501"
+    volumes:
+      - ./tf_serving_model:/models
+    environment:
+      - MODEL_NAME=bert-chinese
+    restart: unless-stopped 

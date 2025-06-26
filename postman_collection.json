@@ -1,0 +1,428 @@
+{
+	"info": {
+		"_postman_id": "bert-chinese-text-classification",
+		"name": "BERT中文文本分类API",
+		"description": "基于BERT模型的中文文本分类服务API测试集合\n\n包含以下功能：\n- 文本分类预测\n- 多种情感测试用例\n- 错误处理测试\n\n服务地址：http://localhost:5001",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "文本分类预测",
+			"item": [
+				{
+					"name": "正面情感测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"这手机拍照真好看，我很喜欢！\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试正面情感的文本分类"
+					},
+					"response": []
+				},
+				{
+					"name": "负面情感测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"质量太差了，不推荐购买。\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试负面情感的文本分类"
+					},
+					"response": []
+				},
+				{
+					"name": "中性情感测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"这个产品的功能比较齐全，价格也合理。\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试中性情感的文本分类"
+					},
+					"response": []
+				},
+				{
+					"name": "长文本测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"这款手机的设计非常精美，外观时尚大气，手感也很好。屏幕显示效果清晰，色彩鲜艳，观看视频和玩游戏都很享受。拍照功能强大，夜景模式特别出色，能够拍出很清晰的照片。电池续航能力也不错，正常使用一天没问题。系统运行流畅，没有卡顿现象。总的来说，这是一款非常值得推荐的好手机！\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试较长文本的分类效果"
+					},
+					"response": []
+				},
+				{
+					"name": "短文本测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"不错\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试短文本的分类效果"
+					},
+					"response": []
+				}
+			],
+			"description": "基本的文本分类预测功能测试"
+		},
+		{
+			"name": "错误处理测试",
+			"item": [
+				{
+					"name": "空文本测试",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试空文本的错误处理"
+					},
+					"response": []
+				},
+				{
+					"name": "缺少text字段",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"测试消息\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试缺少text字段的错误处理"
+					},
+					"response": []
+				},
+				{
+					"name": "无效JSON格式",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"测试文本\",\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试无效JSON格式的错误处理"
+					},
+					"response": []
+				},
+				{
+					"name": "GET方法测试",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "测试GET方法的错误处理"
+					},
+					"response": []
+				}
+			],
+			"description": "错误处理和边界情况测试"
+		},
+		{
+			"name": "性能测试",
+			"item": [
+				{
+					"name": "批量测试1",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"这个产品真的很棒，推荐购买！\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "性能测试用例1"
+					},
+					"response": []
+				},
+				{
+					"name": "批量测试2",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"服务态度很好，物流也很快。\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "性能测试用例2"
+					},
+					"response": []
+				},
+				{
+					"name": "批量测试3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"价格有点贵，但是质量确实不错。\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:5001/predict",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5001",
+							"path": [
+								"predict"
+							]
+						},
+						"description": "性能测试用例3"
+					},
+					"response": []
+				}
+			],
+			"description": "性能测试用例集合"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// 预请求脚本",
+					"console.log('开始执行请求: ' + pm.request.name);"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// 测试脚本",
+					"pm.test('状态码是 200', function () {",
+					"    pm.response.to.have.status(200);",
+					"});",
+					"",
+					"pm.test('响应时间小于 2000ms', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+					"});",
+					"",
+					"pm.test('响应格式是 JSON', function () {",
+					"    pm.response.to.be.json;",
+					"});",
+					"",
+					"pm.test('包含必要字段', function () {",
+					"    const jsonData = pm.response.json();",
+					"    pm.expect(jsonData).to.have.property('class_id');",
+					"    pm.expect(jsonData).to.have.property('confidence');",
+					"    pm.expect(jsonData).to.have.property('input_text');",
+					"    pm.expect(jsonData).to.have.property('predicted_label');",
+					"});",
+					"",
+					"pm.test('置信度在有效范围内', function () {",
+					"    const jsonData = pm.response.json();",
+					"    pm.expect(jsonData.confidence).to.be.at.least(0);",
+					"    pm.expect(jsonData.confidence).to.be.at.most(1);",
+					"});",
+					"",
+					"console.log('请求完成: ' + pm.request.name);",
+					"console.log('响应时间: ' + pm.response.responseTime + 'ms');"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5001",
+			"type": "string"
+		},
+		{
+			"key": "api_path",
+			"value": "/predict",
+			"type": "string"
+		}
+	]
+} 

@@ -3,6 +3,151 @@
 ## 项目简介
 本项目旨在基于BERT模型进行中文文本分类，最终通过TensorFlow Serving部署模型服务。
 
+## 系统架构
+
+### 整体架构图
+
+```mermaid
+graph TB
+    subgraph "客户端层"
+        A[用户/应用] 
+        A1[Web浏览器]
+        A2[移动应用]
+        A3[API客户端]
+    end
+    
+    subgraph "API网关层"
+        B[API网关服务<br/>Flask + Transformers<br/>端口: 5001]
+        B1[文本预处理<br/>BertTokenizer]
+        B2[结果后处理<br/>标签映射]
+        B3[HTTP路由<br/>/predict]
+    end
+    
+    subgraph "推理服务层"
+        C[推理服务<br/>TensorFlow Serving<br/>端口: 8501]
+        C1[模型加载<br/>SavedModel]
+        C2[张量计算<br/>BERT推理]
+        C3[版本管理<br/>模型热更新]
+    end
+    
+    subgraph "数据存储层"
+        D1[模型文件<br/>tf_serving_model/]
+        D2[分词器<br/>saved_model/bert-chinese/]
+        D3[标签映射<br/>label2id.txt]
+        D4[训练数据<br/>data/]
+    end
+    
+    subgraph "容器编排"
+        E[Docker Compose<br/>服务编排]
+        E1[网络配置<br/>内部通信]
+        E2[卷挂载<br/>模型持久化]
+        E3[环境变量<br/>服务发现]
+    end
+    
+    %% 连接关系
+    A --> B
+    A1 --> B
+    A2 --> B
+    A3 --> B
+    
+    B --> C
+    B1 --> B
+    B2 --> B
+    B3 --> B
+    
+    C --> B
+    C1 --> C
+    C2 --> C
+    C3 --> C
+    
+    D1 --> C
+    D2 --> B
+    D3 --> B
+    D4 --> D1
+    
+    E --> B
+    E --> C
+    E1 --> E
+    E2 --> E
+    E3 --> E
+    
+    %% 样式
+    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef gateway fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef inference fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef orchestration fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class A,A1,A2,A3 client
+    class B,B1,B2,B3 gateway
+    class C,C1,C2,C3 inference
+    class D1,D2,D3,D4 storage
+    class E,E1,E2,E3 orchestration
+```
+
+### 微服务架构设计
+本项目采用微服务架构，将系统分为两个核心服务：
+
+```mermaid
+graph TB
+    A[用户请求] --> B[API网关服务<br/>Flask + Transformers<br/>端口: 5001]
+    B --> C[推理服务<br/>TensorFlow Serving<br/>端口: 8501]
+    C --> B
+    B --> D[返回结果]
+    
+    B1[分词器<br/>BertTokenizer] --> B
+    B2[标签映射<br/>label2id.txt] --> B
+    C1[SavedModel<br/>bert-chinese/1] --> C
+```
+
+### 数据流转时序图
+
+```mermaid
+sequenceDiagram
+    participant Client as 客户端
+    participant Gateway as API网关<br/>(Flask)
+    participant Tokenizer as 分词器<br/>(BertTokenizer)
+    participant TF as TensorFlow Serving
+    participant Model as BERT模型
+    
+    Client->>Gateway: POST /predict<br/>{"text": "这手机真好看"}
+    Gateway->>Tokenizer: 加载分词器
+    Gateway->>Tokenizer: 文本分词处理
+    Tokenizer-->>Gateway: 返回input_ids, attention_mask
+    Gateway->>TF: POST /v1/models/bert-chinese:predict<br/>{"instances": [{"input_ids": [...], "attention_mask": [...]}]}
+    TF->>Model: 加载SavedModel
+    Model-->>TF: 返回预测结果<br/>{"predictions": [[0.1, 0.9]]}
+    TF-->>Gateway: 返回推理结果
+    Gateway->>Gateway: 后处理：标签映射
+    Gateway-->>Client: 返回最终结果<br/>{"predicted_label": "1", "confidence": 0.9}
+```
+
+### 服务职责分工
+
+1. **API网关服务 (api-gateway)**
+   - **技术栈**: Python + Flask + Transformers
+   - **端口**: 5001
+   - **职责**:
+     - 接收用户原始文本请求
+     - 加载分词器进行文本预处理
+     - 将处理后的张量转发给推理服务
+     - 解析推理结果并返回友好格式
+   - **优势**: 轻量级、易于扩展、支持复杂预处理逻辑
+
+2. **推理服务 (inference-service)**
+   - **技术栈**: TensorFlow Serving
+   - **端口**: 8501
+   - **职责**:
+     - 加载SavedModel进行高效推理
+     - 接收张量输入，返回预测结果
+     - 提供高性能的模型计算
+   - **优势**: 高性能、稳定、支持模型版本管理
+
+### 数据流转过程
+```
+用户文本 → API网关分词 → 张量数据 → TF Serving推理 → 预测结果 → API网关后处理 → 最终响应
+```
+
 ## 项目流程
 
 ### 1. 环境准备
@@ -40,45 +185,230 @@ python3 export_model.py
 ```
 - 导出的模型位于 `tf_serving_model/bert-chinese/1`，其中 `1` 是模型版本号。
 
-### 5. 服务部署
-推荐使用 Docker 启动 TensorFlow Serving，这样可以避免复杂的环境依赖问题。
+### 5. 服务部署 (一键启动)
+本项目采用 `docker-compose` 来编排和管理应用，实现一键启动包含"API网关"和"推理服务"的完整微服务架构。
+
 ```bash
-# 确保Docker已启动
-# --name 为容器命名
-# -p 将本机的8501端口映射到容器的8501(REST API)
-# -v 将本地模型目录挂载到容器的/models目录
-# -e 指定要加载的模型名称
-docker run -d --name tf-bert-serving -p 8501:8501 \
-  -v "$(pwd)/tf_serving_model:/models" \
-  -e MODEL_NAME=bert-chinese \
-  tensorflow/serving
+# 确保你已安装 docker 和 docker-compose
+# 在项目根目录下运行此命令，它会自动构建并启动所有服务
+docker-compose up --build
 ```
-> **为什么要用 Docker？**
-> 直接在宿主机上通过 `tensorflow_model_server` 命令启动服务理论上可行，但通常会遇到C++库依赖、版本不匹配等复杂的环境问题。使用官方提供的 `tensorflow/serving` Docker 镜像有以下好处：
-> - **环境隔离**: 无需在本地安装任何 TensorFlow Serving 相关的依赖，所有运行时都在容器内，与宿主机环境完全隔离。
-> - **版本一致性**: 确保了开发、测试和生产环境的一致性，避免了"在我机器上能跑"的问题。
-> - **部署便捷**: 一行命令即可启动、停止和管理服务，极大简化了部署流程。
+该命令会：
+1.  根据 `Dockerfile` 构建一个运行 Flask API 网关的镜像。
+2.  拉取 `tensorflow/serving` 镜像作为推理服务。
+3.  启动两个容器，并配置好它们之间的网络，使它们可以相互通信。
+
+服务启动后，API 网关将监听 `5001` 端口。
+
+要停止所有服务，请运行:
+```bash
+docker-compose down
+```
 
 ### 6. 调用服务
-`predict_client.py` 脚本演示了如何调用已部署的服务。它会在本地加载分词器，对文本进行预处理，然后向服务发送请求。
+现在，你可以直接向我们新建的 API 网关发送包含原始文本的请求。
+
 ```bash
-pip3 install requests
-python3 predict_client.py
+# 使用 curl 测试
+curl -X POST http://localhost:5001/predict \
+     -H "Content-Type: application/json" \
+     -d '{"text": "这手机拍照真好看，我很喜欢！"}'
 ```
-成功调用后，会输出预测结果：
+成功调用后，会返回一个易于理解的JSON结果：
+```json
+{
+  "class_id": 2,
+  "confidence": 0.99445045,
+  "input_text": "这手机拍照真好看，我很喜欢！",
+  "predicted_label": "1"
+}
 ```
-模型预测结果:
-==============================
-文本: '这手机拍照真好看，我很喜欢！'
-  -> 预测类别: 1 (置信度: 0.9945)
-------------------------------
-文本: '电池太不耐用了，一天要充好几次电。'
-  -> 预测类别: -1 (置信度: 0.9620)
-------------------------------
-文本: '手机屏幕显示效果还行，中规中矩。'
-  -> 预测类别: 1 (置信度: 0.8104)
-------------------------------
+
+## API接口文档
+
+### 预测接口
+- **URL**: `http://localhost:5001/predict`
+- **方法**: POST
+- **Content-Type**: application/json
+
+#### 请求格式
+```json
+{
+  "text": "要分类的中文文本"
+}
 ```
+
+#### 响应格式
+```json
+{
+  "class_id": 2,
+  "confidence": 0.99445045,
+  "input_text": "这手机拍照真好看，我很喜欢！",
+  "predicted_label": "1"
+}
+```
+
+#### 字段说明
+- `class_id`: 预测的类别ID（数字）
+- `confidence`: 预测置信度（0-1之间）
+- `input_text`: 输入的原始文本
+- `predicted_label`: 预测的类别标签
+
+#### 错误响应
+```json
+{
+  "error": "错误描述信息"
+}
+```
+
+### 测试示例
+```bash
+# 正面情感测试
+curl -X POST http://localhost:5001/predict \
+     -H "Content-Type: application/json" \
+     -d '{"text": "这个产品真的很棒，推荐购买！"}'
+
+# 负面情感测试  
+curl -X POST http://localhost:5001/predict \
+     -H "Content-Type: application/json" \
+     -d '{"text": "质量太差了，不推荐购买。"}'
+```
+
+### Postman测试集合
+项目提供了完整的Postman测试集合 `postman_collection.json`，包含以下测试用例：
+
+#### 导入方法
+1. 打开Postman应用
+2. 点击"Import"按钮
+3. 选择项目根目录下的 `postman_collection.json` 文件
+4. 导入完成后即可看到"BERT中文文本分类API"集合
+
+#### 测试用例分类
+1. **文本分类预测**
+   - 正面情感测试
+   - 负面情感测试  
+   - 中性情感测试
+   - 长文本测试
+   - 短文本测试
+
+2. **错误处理测试**
+   - 空文本测试
+   - 缺少text字段
+   - 无效JSON格式
+   - GET方法测试
+
+3. **性能测试**
+   - 批量测试用例1-3
+
+#### 自动化测试
+集合中包含了自动化测试脚本，会自动验证：
+- 状态码是否为200
+- 响应时间是否小于2000ms
+- 响应格式是否为JSON
+- 是否包含必要字段（class_id, confidence, input_text, predicted_label）
+- 置信度是否在有效范围内（0-1）
+
+#### 环境变量
+集合中配置了以下环境变量：
+- `base_url`: http://localhost:5001
+- `api_path`: /predict
+
+如需修改服务地址，可以在Postman中编辑这些变量。
+
+## 部署指南
+
+### 环境要求
+- Docker 20.10+
+- Docker Compose 2.0+
+- 至少 4GB 内存
+- 至少 10GB 磁盘空间
+
+### 快速部署
+1. **克隆项目**
+   ```bash
+   git clone <repository-url>
+   cd bert-chinese-text-classification-tfserving
+   ```
+
+2. **准备模型文件**
+   - 确保 `saved_model/bert-chinese/` 目录存在（包含训练好的模型）
+   - 确保 `tf_serving_model/bert-chinese/1/` 目录存在（包含导出的SavedModel）
+
+3. **启动服务**
+   ```bash
+   docker-compose up --build -d
+   ```
+
+4. **验证服务**
+   ```bash
+   # 检查服务状态
+   docker-compose ps
+   
+   # 测试API
+   curl -X POST http://localhost:5001/predict \
+        -H "Content-Type: application/json" \
+        -d '{"text": "测试文本"}'
+   ```
+
+### 生产环境部署建议
+1. **使用反向代理**（如 Nginx）进行负载均衡
+2. **配置 HTTPS** 证书
+3. **设置监控和日志收集**
+4. **配置自动扩缩容**
+5. **使用 Docker Swarm 或 Kubernetes** 进行容器编排
+
+### 服务管理
+```bash
+# 查看服务状态
+docker-compose ps
+
+# 查看服务日志
+docker-compose logs api-gateway
+docker-compose logs inference-service
+
+# 重启服务
+docker-compose restart api-gateway
+
+# 停止服务
+docker-compose down
+
+# 重新构建并启动
+docker-compose up --build -d
+```
+
+## 开发指南
+
+### 本地开发环境
+1. **安装依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **启动本地服务**
+   ```bash
+   # 启动API网关（本地模式）
+   python api_gateway.py
+   
+   # 启动TensorFlow Serving（需要先导出模型）
+   tensorflow_model_server --port=8501 --rest_api_port=8501 \
+     --model_name=bert-chinese --model_base_path=/path/to/tf_serving_model/bert-chinese
+   ```
+
+### 代码结构说明
+- `api_gateway.py`: API网关服务，负责文本预处理和结果后处理
+- `train_bert.py`: 模型训练脚本
+- `export_model.py`: 模型导出脚本
+- `predict_client.py`: 独立测试客户端
+- `docker-compose.yml`: 服务编排配置
+- `Dockerfile`: API网关容器构建文件
+
+### 自定义开发
+1. **修改模型**: 编辑 `train_bert.py` 中的模型配置
+2. **添加预处理**: 在 `api_gateway.py` 中添加新的预处理逻辑
+3. **扩展API**: 在 `api_gateway.py` 中添加新的路由
+4. **优化性能**: 调整 Docker 资源配置和模型参数
+
+> `predict_client.py` 脚本仍然可用，它可以用于独立测试后端的推理服务。
 
 #### API 设计：为什么接口不直接接收文本？
 你可能会注意到，无论是`predict_client.py`还是Postman的例子，发送给服务的都不是原始文本，而是一串数字（`input_ids`和`attention_mask`）。这是由TensorFlow Serving的技术特性和业界标准的部署架构决定的。
@@ -108,10 +438,13 @@ bert-chinese-text-classification-tfserving/
   ├── tf_serving_model/
   │   └── bert-chinese/
   │       └── 1/             # 导出的TF Serving模型
-  ├── train_bert.py
+  ├── api_gateway.py                     # 新增：API网关服务
+  ├── docker-compose.yml                 # 新增：Docker编排文件
+  ├── Dockerfile                         # 新增：API网关的Dockerfile
   ├── export_model.py
-  ├── predict_client.py
-  ├── tf_serving_postman_collection.json
+  ├── predict_client.py                  # 用于独立测试TF Serving
+  ├── train_bert.py
+  ├── tf_serving_postman_collection.json # 用于独立测试TF Serving
   └── requirements.txt
 ```
 ## 常见问题与解决方法 (Troubleshooting)
@@ -135,6 +468,21 @@ bert-chinese-text-classification-tfserving/
   1.  **服务器只负责纯计算**：将所有预处理/后处理逻辑（如分词）从模型导出代码中完全剥离。导出的 `SavedModel` 应该是一个纯净的计算图，其接口只接受已经处理好的张量（如 `input_ids`）作为输入。
   2.  **客户端负责所有预处理**: 在调用服务的客户端 (`predict_client.py`) 中加载 `tokenizer`，完成从**原始文本 -> 分词 -> 张量**的所有转换工作。然后将这些张量作为请求体发送给 TensorFlow Serving。
   - *这种 "客户端分词" 的架构是业界标准，它不仅解决了技术问题，也使得模型服务本身更轻量、更高效。*
+
+### 3. 问题：API网关本地加载SavedModel失败
+- **现象**:
+  - `api_gateway.py` 启动时报错：`module 'keras.layers' has no attribute 'TFSMLayer'` 或 `tf.saved_model.load` 加载模型失败。
+  - API接口返回：`{"error": "模型未能成功加载，服务无法使用"}`。
+- **原因**:
+  - 容器内TensorFlow版本与SavedModel导出版本不兼容，或依赖缺失，或模型结构复杂导致本地加载失败。
+  - 实际上，API网关本地加载SavedModel并不是最佳实践。
+- **推荐处理方法**:
+  1. **API网关只负责分词和预处理，不再本地加载SavedModel**。
+  2. **推理时将分词后的张量通过HTTP请求转发给TensorFlow Serving（inference-service）**，由其返回推理结果。
+  3. 这样API网关只需加载分词器和标签映射文件，推理流程更清晰、兼容性更好，也符合业界微服务部署标准。
+  4. 具体实现可参考本项目最新的`api_gateway.py`，即：
+     - 预处理后构造JSON请求体，POST到`http://inference-service:8501/v1/models/bert-chinese:predict`。
+     - 解析返回的`class_id`和`probabilities`，再转为最终API响应。
 
 ## 生产环境部署架构建议
 
