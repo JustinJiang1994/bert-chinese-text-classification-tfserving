@@ -315,6 +315,72 @@ curl -X POST http://localhost:5001/predict \
 
 如需修改服务地址，可以在Postman中编辑这些变量。
 
+### 多实例TF Serving + Nginx负载均衡架构图
+
+```mermaid
+graph TB
+    subgraph "客户端层"
+        A[用户/应用]
+    end
+    subgraph "API网关层"
+        B[API网关服务\n/predict, /predict_batch]
+    end
+    subgraph "负载均衡层"
+        N[Nginx\n8501]
+    end
+    subgraph "推理服务层"
+        C1[TF Serving实例1\n8502]
+        C2[TF Serving实例2\n8503]
+        C3[TF Serving实例3\n8504]
+    end
+    A --> B
+    B --> N
+    N --> C1
+    N --> C2
+    N --> C3
+```
+
+---
+
+### /predict_batch 批量推理接口
+- **URL**: `http://localhost:5001/predict_batch`
+- **方法**: POST
+- **Content-Type**: application/json
+
+#### 请求格式
+```json
+{
+  "texts": [
+    "这手机拍照真好看，我很喜欢！",
+    "质量太差了，不推荐购买。"
+  ]
+}
+```
+
+#### 响应格式
+```json
+{
+  "results": [
+    {
+      "input_text": "这手机拍照真好看，我很喜欢！",
+      "predicted_label": "1",
+      "confidence": 0.994,
+      "class_id": 2
+    },
+    {
+      "input_text": "质量太差了，不推荐购买。",
+      "predicted_label": "0",
+      "confidence": 0.951,
+      "class_id": 0
+    }
+  ]
+}
+```
+
+#### 字段说明
+- `results`: 批量预测结果列表，每个元素结构同单条预测接口
+- 其余字段含义同 `/predict` 接口
+
 ## 部署指南
 
 ### 环境要求
@@ -323,58 +389,64 @@ curl -X POST http://localhost:5001/predict \
 - 至少 4GB 内存
 - 至少 10GB 磁盘空间
 
-### 快速部署
-1. **克隆项目**
+### 快速体验
+1. 克隆项目并进入目录
    ```bash
    git clone <repository-url>
    cd bert-chinese-text-classification-tfserving
    ```
-
-2. **准备模型文件**
-   - 确保 `saved_model/bert-chinese/` 目录存在（包含训练好的模型）
-   - 确保 `tf_serving_model/bert-chinese/1/` 目录存在（包含导出的SavedModel）
-
-3. **启动服务**
+2. 准备模型文件（见下文"模型准备说明"）
+3. 一键启动服务
    ```bash
-   docker-compose up --build -d
+   docker-compose -f docker-compose.optimized.yml up --build -d
    ```
-
-4. **验证服务**
+4. 发送测试请求
    ```bash
-   # 检查服务状态
-   docker-compose ps
-   
-   # 测试API
    curl -X POST http://localhost:5001/predict \
         -H "Content-Type: application/json" \
-        -d '{"text": "测试文本"}'
+        -d '{"text": "这手机拍照真好看，我很喜欢！"}'
    ```
 
-### 生产环境部署建议
-1. **使用反向代理**（如 Nginx）进行负载均衡
-2. **配置 HTTPS** 证书
-3. **设置监控和日志收集**
-4. **配置自动扩缩容**
-5. **使用 Docker Swarm 或 Kubernetes** 进行容器编排
+---
 
-### 服务管理
-```bash
-# 查看服务状态
-docker-compose ps
+## 常见报错与排查（FAQ）
 
-# 查看服务日志
-docker-compose logs api-gateway
-docker-compose logs inference-service
+| 问题现象 | 可能原因 | 解决办法 |
+|---|---|---|
+| 端口被占用 | 本地已有同端口服务 | 修改docker-compose端口或关闭占用进程 |
+| 模型未加载/推理失败 | 模型目录缺失或路径错误 | 检查tf_serving_model/bert-chinese/1/目录是否存在 |
+| ImportError/依赖冲突 | requirements.txt未一次性安装 | 删除虚拟环境，重新pip install -r requirements.txt |
+| API网关报错"服务无法使用" | 分词器或标签文件未加载 | 检查saved_model/bert-chinese/目录及label2id.txt |
+| 性能测试全部失败 | 服务未启动或URL错误 | 检查docker-compose ps和测试脚本base_url |
 
-# 重启服务
-docker-compose restart api-gateway
+---
 
-# 停止服务
-docker-compose down
+## 环境变量说明
+| 变量名 | 作用 | 默认值 |
+|---|---|---|
+| TF_SERVING_URL | API网关转发的TF Serving推理服务URL | http://nginx:8501/v1/models/bert-chinese:predict |
+| MODEL_NAME | TF Serving加载的模型名 | bert-chinese |
+| TFSERVING_BATCHING_PARAMETERS_FILE | 批量推理参数文件路径 | /models/batching_config.txt |
 
-# 重新构建并启动
-docker-compose up --build -d
-```
+---
+
+## 模型准备说明
+- 训练模型：运行`python train_bert.py`，输出在`saved_model/bert-chinese/`
+- 导出SavedModel：运行`python export_model.py`，输出在`tf_serving_model/bert-chinese/1/`
+- 如无本地模型，可联系项目维护者获取或自行训练导出
+
+---
+
+## 性能测试说明
+- 运行性能测试：
+  ```bash
+  python performance_test.py
+  ```
+- 自定义参数示例：
+  ```bash
+  python performance_test.py --help
+  # 或手动修改脚本中的num_requests、max_workers、base_url等参数
+  ```
 
 ## 开发指南
 
@@ -522,4 +594,36 @@ sequenceDiagram
 - **关注点分离 (Separation of Concerns)**: 每个服务只做自己最擅长的事，使得系统更容易开发、调试和维护。
 - **独立扩展 (Scalability)**: 推理服务（通常需要GPU）和网关服务（通常只需要CPU）可以根据各自的负载独立进行扩缩容，从而最大化资源利用率。
 - **灵活性 (Flexibility)**: 未来可以轻松替换底层的推理服务（例如从TF Serving换成TorchServe），而对最终用户无任何影响，只需修改网关服务的内部调用逻辑。
+
+## 性能优化实验与流程记录
+
+### 1. 初始配置与性能
+- 单实例TF Serving，未开启批量推理。
+- QPS约1.0~1.1，推荐并发数1，平均响应时间900~1000ms。
+
+### 2. 多实例与Nginx负载均衡
+- 启动3个TF Serving实例，Nginx做负载均衡。
+- QPS无明显提升，瓶颈依然在CPU推理速度。
+
+### 3. 批量推理参数优化
+- 开启批量推理，max_batch_size=16，batch_timeout_micros多次调整（10000、50000）。
+- 批量推理生效，但QPS提升有限，单请求延迟略有增加。
+
+### 4. Gunicorn与API网关优化
+- Gunicorn worker数、gevent异步worker等参数优化。
+- API网关增加/predict_batch接口，支持批量请求。
+- 资源监控显示CPU利用率30%左右，内存充足。
+
+### 5. 性能测试与结论
+- 高并发下错误率极高，QPS无明显提升。
+- 主要瓶颈为CPU推理速度，硬件未变情况下参数优化提升有限。
+- 推荐并发数1~5，QPS极限约1.1。
+
+### 6. 结论与建议
+- 如需大幅提升：
+  - 更换更强CPU或使用GPU加速
+  - 模型量化/裁剪/轻量化（TinyBERT、DistilBERT等）
+  - 业务层限流、异步处理
+
+> 本实验详细记录了从单实例到多实例、批量推理、API网关批量接口、参数多轮调整的全过程，便于后续团队参考与复现。
 

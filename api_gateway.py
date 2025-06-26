@@ -134,6 +134,57 @@ def predict():
         app.logger.error(f"处理请求时发生未知错误: {e}")
         return jsonify({"error": f"服务器内部错误: {e}"}), 500
 
+@app.route("/predict_batch", methods=['POST'])
+def predict_batch():
+    if tokenizer is None or id2label is None:
+        return jsonify({"error": "分词器或标签文件未能成功加载，服务无法使用"}), 503
+
+    if not request.json or 'texts' not in request.json:
+        return jsonify({"error": "请求体必须是包含'texts'字段的JSON，且为字符串列表"}), 400
+
+    texts = request.json['texts']
+    if not isinstance(texts, list) or not texts or not all(isinstance(t, str) and t.strip() for t in texts):
+        return jsonify({"error": "'texts'字段必须是非空字符串列表"}), 400
+
+    try:
+        tokenized_inputs = tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=128,
+            return_tensors="np"
+        )
+        payload = {
+            "instances": [
+                {
+                    "input_ids": tokenized_inputs['input_ids'][i].tolist(),
+                    "attention_mask": tokenized_inputs['attention_mask'][i].tolist(),
+                    "token_type_ids": tokenized_inputs['token_type_ids'][i].tolist()
+                } for i in range(len(texts))
+            ]
+        }
+        resp = requests.post(TF_SERVING_URL, json=payload)
+        if resp.status_code != 200:
+            return jsonify({"error": f"推理服务调用失败: {resp.text}"}), 500
+        result = resp.json()
+        predictions = result['predictions']
+        outputs = []
+        for i, pred in enumerate(predictions):
+            class_id = int(pred['class_id']) if 'class_id' in pred else int(np.argmax(pred['probabilities']))
+            probabilities = pred['probabilities']
+            predicted_label = id2label.get(class_id, "未知标签")
+            confidence = float(probabilities[class_id])
+            outputs.append({
+                "input_text": texts[i],
+                "predicted_label": predicted_label,
+                "confidence": confidence,
+                "class_id": class_id
+            })
+        return jsonify({"results": outputs})
+    except Exception as e:
+        app.logger.error(f"批量处理请求时发生未知错误: {e}")
+        return jsonify({"error": f"服务器内部错误: {e}"}), 500
+
 # --- 应用启动入口 ---
 # 当直接运行此脚本时（非Docker环境），使用Flask内置服务器
 # 在Docker环境中，会使用Gunicorn作为WSGI服务器

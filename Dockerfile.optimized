@@ -1,0 +1,50 @@
+# ==================== 优化版API网关容器构建文件 ====================
+# 针对性能优化：增加worker数量、优化内存使用、提升并发能力
+# 备注：
+# 1. 使用国内PyPI镜像源（如清华）加速依赖下载，解决网络超时问题
+# 2. pip安装命令增加--timeout参数，提升容器构建成功率
+# 3. 如需切换镜像源，可修改index-url为阿里云、华为等
+
+# 使用本地Python基础镜像
+FROM python:3.8
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装系统依赖和编译工具链
+# 包括libhdf5-dev（TensorFlow依赖）、gcc、g++、python3-dev、cython（gevent依赖）
+RUN apt-get update && \
+    apt-get install -y libhdf5-dev gcc g++ python3-dev && \
+    pip install --no-cache-dir cython -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 复制Python依赖文件
+COPY requirements.txt .
+
+# 使用清华PyPI镜像源加速依赖下载，并增加超时时间
+# 如需更换镜像源，可将index-url替换为阿里云、华为等
+RUN pip install --timeout 120 --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install flask gunicorn -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 复制应用代码
+COPY . .
+
+# 暴露端口
+EXPOSE 5001
+
+# 优化后的启动命令
+# --workers: 根据CPU核心数设置，建议 2*CPU核心数+1
+# --worker-class: 使用gevent异步worker，提升并发能力
+# --worker-connections: 每个worker的最大连接数
+# --timeout: 请求超时时间
+# --max-requests: 每个worker处理的最大请求数，防止内存泄漏
+# --max-requests-jitter: 随机化重启时间，避免所有worker同时重启
+CMD ["gunicorn", \
+     "--workers", "4", \
+     "--worker-class", "gevent", \
+     "--worker-connections", "1000", \
+     "--bind", "0.0.0.0:5001", \
+     "--timeout", "60", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "100", \
+     "--preload", \
+     "api_gateway:app"] 

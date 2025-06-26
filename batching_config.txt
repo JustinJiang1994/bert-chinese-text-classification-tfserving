@@ -1,0 +1,3 @@
+max_batch_size { value: 16 }
+batch_timeout_micros { value: 10000 }
+max_enqueued_batches { value: 100 } 
